@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"golang.org/x/net/html"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -13,20 +14,36 @@ type video struct {
 }
 
 func main() {
+	result := make(chan video)
+	todo := make(chan string)
+	pageDB := make(map[string]string)
+	var next string
+
+	go recorder(result, pageDB)
+	initilize(result, todo, pageDB)
+	for {
+		next = <-todo
+		_, ok := pageDB[next]
+		if !ok {
+			pageDB[next] = "NA"
+			go worker(next, result, todo)
+		}
+	}
+}
+
+func initilize(result chan video, todo chan string, pageDB map[string]string) {
 	resp, err := http.Get("http://www.youku.com/")
 	if err != nil {
-		panic(err)
+		fmt.Println(err.Error())
+		os.Exit(0)
 	}
 	defer resp.Body.Close()
 
 	doc, err := html.Parse(resp.Body)
 	if err != nil {
 		fmt.Println(err.Error())
-		return
+		os.Exit(0)
 	}
-
-	pageDB := make(map[string]string)
-
 	var f func(*html.Node)
 	f = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" {
@@ -36,7 +53,8 @@ func main() {
 					id := parseYkRef(a.Val)
 					_, ok := pageDB[id]
 					if !ok {
-						recordID(id, pageDB)
+						pageDB[id] = "NA"
+						go worker(id, result, todo)
 					}
 				}
 			}
@@ -46,8 +64,23 @@ func main() {
 		}
 	}
 	f(doc)
+}
 
-	fmt.Println("Done!")
+func recorder(result chan video, pageDB map[string]string) {
+	var ret video
+	num := 0
+	for {
+		ret = <-result
+		val, ok := pageDB[ret.id]
+		if !ok {
+			fmt.Printf("[BUG] Not in DB: %s %s\n", ret.id, ret.title)
+		} else if val != "NA" {
+			fmt.Printf("[BUG] already hash: %s %s(%s)\n", ret.id, val, ret.title)
+		}
+		pageDB[ret.id] = ret.title
+		fmt.Printf("[%4d] %s\t  %s\n", num, ret.id, ret.title)
+		num++
+	}
 }
 
 func parseYkRef(ref string) (id string) {
@@ -59,10 +92,13 @@ func parseYkRef(ref string) (id string) {
 	if idx = strings.Index(id, "=="); idx != -1 {
 		id = id[:idx]
 	}
+	if idx = strings.Index(id, "_v_"); idx != -1 {
+		id = id[:idx]
+	}
 	return id
 }
 
-func recordID(id string, pageDB map[string]string) {
+func worker(id string, result chan video, todo chan string) {
 	ref := fmt.Sprintf("http://v.youku.com/v_show/id_%s.html", id)
 	resp, err := http.Get(ref)
 	if err != nil {
@@ -71,7 +107,7 @@ func recordID(id string, pageDB map[string]string) {
 	}
 	defer resp.Body.Close()
 
-	title := "N/A"
+	title := "NA"
 	z := html.NewTokenizer(resp.Body)
 	for {
 		tt := z.Next()
@@ -89,7 +125,29 @@ func recordID(id string, pageDB map[string]string) {
 			}
 		}
 	}
+	var ret video
+	ret.id = id
+	ret.title = title
+	result <- ret
 
-	fmt.Printf("%s\t   %s\n", id, title)
-	pageDB[id] = title
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		return
+	}
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" {
+			attr := n.Attr
+			for _, a := range attr {
+				if a.Key == "href" && strings.HasPrefix(a.Val, "http://v.youku.com/v_show/id_") {
+					id := parseYkRef(a.Val)
+					todo <- id
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(doc)
 }
