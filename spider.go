@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"golang.org/x/net/html"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type video struct {
@@ -18,13 +20,20 @@ func main() {
 	todo := make(chan string)
 	pageDB := make(map[string]string)
 	var next string
+	rl := 100
 
 	go recorder(result, pageDB)
 	initilize(result, todo, pageDB)
 	for {
+		if rl == 0 {
+			rl = 100
+			fmt.Println("Sleep 5 seconds...")
+			time.Sleep(5 * time.Second)
+		}
 		next = <-todo
 		_, ok := pageDB[next]
 		if !ok {
+			rl--
 			pageDB[next] = "NA"
 			go worker(next, result, todo)
 		}
@@ -102,8 +111,8 @@ func worker(id string, result chan video, todo chan string) {
 	ref := fmt.Sprintf("http://v.youku.com/v_show/id_%s.html", id)
 	resp, err := http.Get(ref)
 	if err != nil {
+		fmt.Println(err.Error())
 		return
-		//panic(err)
 	}
 	defer resp.Body.Close()
 
@@ -128,6 +137,12 @@ func worker(id string, result chan video, todo chan string) {
 	var ret video
 	ret.id = id
 	ret.title = title
+	if title == "NA" {
+		fmt.Printf("Not find title for %s\n", id)
+		data, _ := ioutil.ReadAll(resp.Body)
+		fmt.Println(data)
+		os.Exit(0)
+	}
 	result <- ret
 
 	doc, err := html.Parse(resp.Body)
