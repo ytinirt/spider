@@ -14,8 +14,10 @@ import (
 var idDb map[int]string
 var idDbLock sync.RWMutex
 var dbFileName string = "zhihu.db"
-var maxTodo int = 0x10000
-var maxProcessor int = 2
+var maxTodo int = 0x1000
+var thresholdTodo int = maxTodo - 1096
+var lenTodo int = 0
+var maxProcessor int = 3
 
 type record struct {
 	id    int
@@ -41,9 +43,10 @@ func main() {
 
 	go recorder(file, result)
 
-	todo <- 19815471
+	todo <- 20313419
 
 	for {
+		lenTodo = len(todo)
 		id := <-todo
 		//fmt.Println("get", id)
 		idDbLock.RLock()
@@ -68,16 +71,12 @@ func recorder(file *os.File, result chan record) {
 		val, ok := idDb[r.id]
 		if !ok {
 			// 记录新的id和title
-			fmt.Println(r.id, r.title)
+			fmt.Printf("[%4d] %d %s\n", lenTodo, r.id, r.title)
 			wbuf := fmt.Sprintln(r.id, r.title)
 			_, err := file.WriteString(wbuf)
 			if err != nil {
 				fmt.Printf("[%d %s]: %s\n", r.id, r.title, err.Error())
 			} else {
-				err = file.Sync()
-				if err != nil {
-					fmt.Printf("[%d %s]: %s\n", r.id, r.title, err.Error())
-				}
 				idDb[r.id] = r.title
 			}
 		} else {
@@ -161,6 +160,10 @@ func processUrl(url string, result chan record, todo chan int) int {
 		result <- r
 	} else {
 		fmt.Printf("[%s]: Not find id\n", url)
+	}
+
+	if lenTodo > thresholdTodo {
+		return 0
 	}
 
 	doc, err := html.Parse(resp.Body)
