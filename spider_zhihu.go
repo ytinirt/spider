@@ -8,54 +8,124 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-var idDB map[string]string
-var file *os.File
+var idDb map[int]string
+var idDbLock sync.RWMutex
+var dbFileName string = "zhihu.db"
+var maxTodo int = 0x10000
+var maxProcessor int = 2
 
-func main() {
-	idDB = make(map[string]string)
-	f, err := os.OpenFile("zhihu.db", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	defer f.Close()
-	file = f
-
-	loadRecord()
-
-	process("http://www.zhihu.com/question/19842667")
+type record struct {
+	id    int
+	title string
 }
 
-func loadRecord() {
-	s := bufio.NewScanner(file)
-	var record string
+func main() {
+	var file *os.File
+	result := make(chan record)
+	todo := make(chan int, maxTodo)
+	idDb = make(map[int]string)
+	sem := make(chan int, maxProcessor)
 
-	for s.Scan() {
-		record = s.Text()
-		idx := strings.Index(record, " ")
-		if idx == -1 {
-			fmt.Println("Invalid record:", record)
-			continue
-		}
-		id := record[:idx]
-		title := record[idx+1:]
-		if _, err := strconv.Atoi(id); err != nil {
-			fmt.Println("Invalid record:", record)
-			continue
-		}
-		idDB[id] = title
+	file, err := os.OpenFile(dbFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("[%s]: %s\n", dbFileName, err.Error())
+		return
 	}
+	defer file.Close()
+
+	totalLoaded := loadRecord(file)
+	fmt.Printf("Load %d record(s) from %s\n", totalLoaded, dbFileName)
+
+	go recorder(file, result)
+
+	todo <- 20923394
+
+	for {
+		id := <-todo
+		//fmt.Println("get", id)
+		idDbLock.RLock()
+		_, ok := idDb[id]
+		idDbLock.RUnlock()
+		if ok {
+			continue
+		}
+		sem <- 1
+		go func() {
+			url := fmt.Sprintf("http://www.zhihu.com/question/%d", id)
+			processUrl(url, result, todo)
+			<-sem
+		}()
+	}
+}
+
+func recorder(file *os.File, result chan record) {
+	for {
+		r := <-result
+		idDbLock.Lock()
+		val, ok := idDb[r.id]
+		if !ok {
+			// 记录新的id和title
+			fmt.Println(r.id, r.title)
+			wbuf := fmt.Sprintln(r.id, r.title)
+			_, err := file.WriteString(wbuf)
+			if err != nil {
+				fmt.Printf("[%d %s]: %s\n", r.id, r.title, err.Error())
+			} else {
+				err = file.Sync()
+				if err != nil {
+					fmt.Printf("[%d %s]: %s\n", r.id, r.title, err.Error())
+				}
+				idDb[r.id] = r.title
+			}
+		} else {
+			// 已经有记录了
+			if val != r.title {
+				fmt.Printf("[%d %s]: WARNING new title %s\n", r.id, val, r.title)
+			}
+		}
+		idDbLock.Unlock()
+	}
+}
+
+func loadRecord(file *os.File) int {
+	s := bufio.NewScanner(file)
+	var r string
+	var totalLoaded int = 0
+
+	idDbLock.Lock()
+	for s.Scan() {
+		r = s.Text()
+		idx := strings.Index(r, " ")
+		if idx == -1 {
+			fmt.Println("Invalid record:", r)
+			continue
+		}
+		id := r[:idx]
+		title := r[idx+1:]
+		dec, err := strconv.Atoi(id)
+		if err != nil {
+			fmt.Println("Invalid record:", r)
+			continue
+		}
+		idDb[dec] = title
+		totalLoaded++
+	}
+	idDbLock.Unlock()
+
 	if err := s.Err(); err != nil {
 		fmt.Println(err.Error())
 	}
+
+	return totalLoaded
 }
 
-func process(url string) int {
+func processUrl(url string, result chan record, todo chan int) int {
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Printf("[%s]: %s\n", url, err.Error())
 		return -1
 	}
 	defer resp.Body.Close()
@@ -78,31 +148,23 @@ func process(url string) int {
 		}
 	}
 	if title == "N/A" {
-		fmt.Println("Not find title")
+		fmt.Printf("[%s]: Not find title\n", url)
 		return -1
 	}
 	title = strings.TrimSpace(title)
-	fmt.Println(url, title)
 	id, success := parseZhRef(url)
 	if success {
-		record := fmt.Sprintln(id, title)
-		_, err := file.WriteString(record)
-		if err != nil {
-			fmt.Println(err.Error())
-		} else {
-			err = file.Sync()
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			idDB[id] = title
-		}
+		var r record
+		r.id = id
+		r.title = title
+		result <- r
 	} else {
-		fmt.Println("Not find id in: ", url)
+		fmt.Printf("[%s]: Not find id\n", url)
 	}
 
 	doc, err := html.Parse(resp.Body)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Printf("[%s]: %s\n", url, err.Error())
 		return -1
 	}
 
@@ -116,7 +178,8 @@ func process(url string) int {
 					if !success {
 						break
 					}
-					processZhId(id)
+					todo <- id
+					//fmt.Println("added", id)
 				}
 			}
 		}
@@ -129,7 +192,7 @@ func process(url string) int {
 	return 0
 }
 
-func parseZhRef(ref string) (string, bool) {
+func parseZhRef(ref string) (int, bool) {
 	var id string
 	var idx int
 	if strings.HasPrefix(ref, "http://www.zhihu.com/question/") {
@@ -137,7 +200,7 @@ func parseZhRef(ref string) (string, bool) {
 	} else if strings.HasPrefix(ref, "/question/") {
 		id = strings.TrimPrefix(ref, "/question/")
 	} else {
-		return "", false
+		return -1, false
 	}
 
 	if idx = strings.Index(id, "?"); idx != -1 {
@@ -152,13 +215,10 @@ func parseZhRef(ref string) (string, bool) {
 	if idx = strings.Index(id, "/"); idx != -1 {
 		id = id[:idx]
 	}
-	return id, true
-}
-
-func processZhId(id string) {
-	_, ok := idDB[id]
-	if !ok {
-		url := fmt.Sprintf("http://www.zhihu.com/question/%s", id)
-		process(url)
+	dec, err := strconv.Atoi(id)
+	if err != nil {
+		fmt.Printf("Invalid id %s in %s: %s\n", id, ref, err.Error())
+		return -1, false
 	}
+	return dec, true
 }
