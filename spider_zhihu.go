@@ -41,7 +41,7 @@ func main() {
 
 	go recorder(file, result)
 
-	todo <- 20923394
+	todo <- 19815471
 
 	for {
 		id := <-todo
@@ -152,6 +152,7 @@ func processUrl(url string, result chan record, todo chan int) int {
 		return -1
 	}
 	title = strings.TrimSpace(title)
+	title = strings.Replace(title, "\n", " ", -1)
 	id, success := parseZhRef(url)
 	if success {
 		var r record
