@@ -25,7 +25,7 @@ func main() {
 
 	loadRecord()
 
-	process("http://www.zhihu.com/question/19783289")
+	process("http://www.zhihu.com/question/19842667")
 }
 
 func loadRecord() {
@@ -147,6 +147,9 @@ func parseZhRef(ref string) (string, bool) {
 		id = id[:idx]
 	}
 	if idx = strings.Index(id, "/answer"); idx != -1 {
+		id = id[:idx]
+	}
+	if idx = strings.Index(id, "/"); idx != -1 {
 		id = id[:idx]
 	}
 	return id, true
