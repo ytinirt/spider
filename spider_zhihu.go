@@ -17,7 +17,7 @@ var dbFileName string = "zhihu.db"
 var maxTodo int = 0x1000
 var thresholdTodo int = maxTodo - 1096
 var lenTodo int = 0
-var maxProcessor int = 3
+var maxProcessor int = 4
 
 type record struct {
 	id    int
@@ -38,12 +38,19 @@ func main() {
 	}
 	defer file.Close()
 
-	totalLoaded := loadRecord(file)
+	totalLoaded, lastId := loadRecord(file)
 	fmt.Printf("Load %d record(s) from %s\n", totalLoaded, dbFileName)
 
-	go recorder(file, result)
+	if lastId > 0 {
+		idDbLock.Lock()
+		delete(idDb, lastId)
+		idDbLock.Unlock()
+		todo <- lastId
+	} else {
+		todo <- 20313419
+	}
 
-	todo <- 20313419
+	go recorder(file, result)
 
 	for {
 		lenTodo = len(todo)
@@ -89,10 +96,11 @@ func recorder(file *os.File, result chan record) {
 	}
 }
 
-func loadRecord(file *os.File) int {
+func loadRecord(file *os.File) (totalLoaded int, lastId int) {
 	s := bufio.NewScanner(file)
 	var r string
-	var totalLoaded int = 0
+	totalLoaded = 0
+	lastId = -1
 
 	idDbLock.Lock()
 	for s.Scan() {
@@ -109,7 +117,13 @@ func loadRecord(file *os.File) int {
 			fmt.Println("Invalid record:", r)
 			continue
 		}
-		idDb[dec] = title
+		val, ok := idDb[dec]
+		if ok {
+			fmt.Println("Already exist:", dec, val)
+		} else {
+			idDb[dec] = title
+		}
+		lastId = dec
 		totalLoaded++
 	}
 	idDbLock.Unlock()
@@ -118,7 +132,7 @@ func loadRecord(file *os.File) int {
 		fmt.Println(err.Error())
 	}
 
-	return totalLoaded
+	return totalLoaded, lastId
 }
 
 func processUrl(url string, result chan record, todo chan int) int {
