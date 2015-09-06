@@ -14,8 +14,8 @@ import (
 var idDb map[int]string
 var idDbLock sync.RWMutex
 var dbFileName string = "zhihu.db"
-var maxTodo int = 0x1000
-var thresholdTodo int = maxTodo - 1096
+var maxTodo int = 0x4000
+var thresholdTodo int = maxTodo - 1384
 var lenTodo int = 0
 var maxProcessor int = 4
 
