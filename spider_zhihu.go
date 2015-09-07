@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"golang.org/x/net/html"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var idDb map[int]string
@@ -38,17 +40,13 @@ func main() {
 	}
 	defer file.Close()
 
-	totalLoaded, lastId := loadRecord(file)
+	totalLoaded, _ := loadRecord(file)
 	fmt.Printf("Load %d record(s) from %s\n", totalLoaded, dbFileName)
 
-	if lastId > 0 {
-		idDbLock.Lock()
-		delete(idDb, lastId)
-		idDbLock.Unlock()
-		todo <- lastId
-	} else {
-		todo <- 20313419
-	}
+	start := genStartId()
+	fmt.Println("Start id:", start)
+
+	todo <- start
 
 	go recorder(file, result)
 
@@ -69,6 +67,38 @@ func main() {
 			<-sem
 		}()
 	}
+}
+
+func genStartId() int {
+	var id int
+
+	rand.Seed(time.Now().UnixNano())
+
+	for {
+		id = rand.Intn(15734175) + 19550225
+
+		idDbLock.RLock()
+		_, ok := idDb[id]
+		idDbLock.RUnlock()
+
+		if ok {
+			continue
+		}
+
+		url := fmt.Sprintf("http://www.zhihu.com/question/%d", id)
+		resp, err := http.Get(url)
+		if err != nil {
+			continue
+		}
+		if resp.StatusCode == 200 {
+			resp.Body.Close()
+			break
+		}
+		// fmt.Printf("[%d]: %s\n", resp.StatusCode, url)
+		resp.Body.Close()
+	}
+
+	return id
 }
 
 func recorder(file *os.File, result chan record) {
