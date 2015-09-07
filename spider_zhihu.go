@@ -20,6 +20,9 @@ var maxTodo int = 0x4000
 var thresholdTodo int = maxTodo - 1384
 var lenTodo int = 0
 var maxProcessor int = 4
+var useRand bool = true
+var maxValidId int = -1
+var tmpId int = -1
 
 type record struct {
 	id    int
@@ -27,12 +30,22 @@ type record struct {
 }
 
 func main() {
-    var id int
+	var id int
 	var file *os.File
 	result := make(chan record)
 	todo := make(chan int, maxTodo)
 	idDb = make(map[int]string)
 	sem := make(chan int, maxProcessor)
+
+	args := os.Args[1:]
+	if args != nil {
+		val, err := strconv.Atoi(args[0])
+		if err == nil && val > 0 {
+			useRand = false
+			maxValidId = val
+			tmpId = maxValidId
+		}
+	}
 
 	file, err := os.OpenFile(dbFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -53,20 +66,20 @@ func main() {
 
 	for {
 		lenTodo = len(todo)
-    
-        timeout := make(chan bool, 1)
-        go func() {
-            time.Sleep(2 * time.Second)
-            timeout <- true
-        }()
-		
-        select {
-            case id = <-todo:
-            case <-timeout:
-                id = genStartId()
-                fmt.Printf("Gen id %d\n", id)
-        }
-        
+
+		timeout := make(chan bool, 1)
+		go func() {
+			time.Sleep(1 * time.Second)
+			timeout <- true
+		}()
+
+		select {
+		case id = <-todo:
+		case <-timeout:
+			id = genStartId()
+			fmt.Printf("Gen id %d\n", id)
+		}
+
 		//fmt.Println("get", id)
 		idDbLock.RLock()
 		_, ok := idDb[id]
@@ -89,7 +102,15 @@ func genStartId() int {
 	rand.Seed(time.Now().UnixNano())
 
 	for {
-		id = rand.Intn(15734175) + 19550225
+		if useRand {
+			id = rand.Intn(15734175) + 19550225
+		} else {
+			id = tmpId
+			tmpId--
+		}
+		if id <= 0 {
+			panic("id <= 0")
+		}
 
 		idDbLock.RLock()
 		_, ok := idDb[id]
