@@ -27,6 +27,7 @@ type record struct {
 }
 
 func main() {
+    var id int
 	var file *os.File
 	result := make(chan record)
 	todo := make(chan int, maxTodo)
@@ -52,7 +53,20 @@ func main() {
 
 	for {
 		lenTodo = len(todo)
-		id := <-todo
+    
+        timeout := make(chan bool, 1)
+        go func() {
+            time.Sleep(2 * time.Second)
+            timeout <- true
+        }()
+		
+        select {
+            case id = <-todo:
+            case <-timeout:
+                id = genStartId()
+                fmt.Printf("Gen id %d\n", id)
+        }
+        
 		//fmt.Println("get", id)
 		idDbLock.RLock()
 		_, ok := idDb[id]
