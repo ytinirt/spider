@@ -19,10 +19,11 @@ var dbFileName string = "zhihu.db"
 var maxTodo int = 0x4000
 var thresholdTodo int = maxTodo - 1384
 var lenTodo int = 0
-var maxProcessor int = 2
+var maxProcessor int = 3
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
+var maxGenRandId int = 1000
 
 type record struct {
 	id    int
@@ -37,15 +38,15 @@ func main() {
 	idDb = make(map[int]string)
 	sem := make(chan int, maxProcessor)
 
-	args := os.Args[1:]
-	if args != nil {
-		val, err := strconv.Atoi(args[0])
-		if err == nil && val > 0 {
-			useRand = false
-			maxValidId = val
-			tmpId = maxValidId
-		}
-	}
+	//args := os.Args[1:]
+	//if args != nil {
+	//	val, err := strconv.Atoi(args[0])
+	//	if err == nil && val > 0 {
+	//		useRand = false
+	//		maxValidId = val
+	//		tmpId = maxValidId
+	//	}
+	//}
 
 	file, err := os.OpenFile(dbFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -76,8 +77,8 @@ func main() {
 		select {
 		case id = <-todo:
 		case <-timeout:
-			id = genStartId()
-			fmt.Printf("Gen id %d\n", id)
+			go genRandId(todo)
+			continue
 		}
 
 		//fmt.Println("get", id)
@@ -89,7 +90,7 @@ func main() {
 		}
 		sem <- 1
 		go func() {
-            nid := id
+			nid := id
 			url := fmt.Sprintf("http://www.zhihu.com/question/%d", nid)
 			processUrl(url, result, todo)
 			<-sem
@@ -135,6 +136,37 @@ func genStartId() int {
 	}
 
 	return id
+}
+
+func genRandId(todo chan int) {
+	var id int
+	count := maxGenRandId
+
+	rand.Seed(time.Now().UnixNano())
+
+	for count > 0 {
+		id = rand.Intn(16000000) + 19550000
+
+		idDbLock.RLock()
+		_, ok := idDb[id]
+		idDbLock.RUnlock()
+
+		if ok {
+			continue
+		}
+
+		url := fmt.Sprintf("http://www.zhihu.com/question/%d", id)
+		resp, err := http.Get(url)
+		if err != nil {
+			continue
+		}
+		statusCode := resp.StatusCode
+		resp.Body.Close()
+		if statusCode == 200 {
+			count--
+			todo <- id
+		}
+	}
 }
 
 func recorder(file *os.File, result chan record) {
