@@ -19,7 +19,7 @@ var dbFileName string = "zhihu.db"
 var maxTodo int = 0x4000
 var thresholdTodo int = maxTodo - 1384
 var lenTodo int = 0
-var maxProcessor int = 4
+var maxProcessor int = 2
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
@@ -89,7 +89,8 @@ func main() {
 		}
 		sem <- 1
 		go func() {
-			url := fmt.Sprintf("http://www.zhihu.com/question/%d", id)
+            nid := id
+			url := fmt.Sprintf("http://www.zhihu.com/question/%d", nid)
 			processUrl(url, result, todo)
 			<-sem
 		}()
