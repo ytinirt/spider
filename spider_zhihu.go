@@ -23,7 +23,7 @@ var maxProcessor int = 3
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
-var maxGenRandId int = 1000
+var maxGenRandId int = 15
 
 type record struct {
 	id    int
@@ -65,19 +65,24 @@ func main() {
 
 	go recorder(file, result)
 
+	timeout := make(chan bool)
+	go func() {
+		time.Sleep(10 * time.Second)
+		timeout <- true
+	}()
+
 	for {
 		lenTodo = len(todo)
-
-		timeout := make(chan bool, 1)
-		go func() {
-			time.Sleep(1 * time.Second)
-			timeout <- true
-		}()
 
 		select {
 		case id = <-todo:
 		case <-timeout:
+			fmt.Println("genRandId triggerd")
 			go genRandId(todo)
+			go func() {
+				time.Sleep(10 * time.Second)
+				timeout <- true
+			}()
 			continue
 		}
 
@@ -166,7 +171,11 @@ func genRandId(todo chan int) {
 			count--
 			todo <- id
 		}
+
+		time.Sleep(10 * time.Millisecond)
 	}
+
+	fmt.Println("genRandId stopped")
 }
 
 func recorder(file *os.File, result chan record) {
