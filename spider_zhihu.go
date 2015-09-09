@@ -19,7 +19,7 @@ var dbFileName string = "zhihu.db"
 var maxTodo int = 0x4000
 var thresholdTodo int = maxTodo - 1384
 var lenTodo int = 0
-var maxProcessor int = 3
+var maxProcessor int = 4
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
@@ -77,8 +77,10 @@ func main() {
 		select {
 		case id = <-todo:
 		case <-timeout:
-			fmt.Println("genRandId triggerd")
-			go genRandId(todo)
+			if lenTodo < 200 {
+				fmt.Println("genRandId triggerd")
+				go genRandId(todo)
+			}
 			go func() {
 				time.Sleep(10 * time.Second)
 				timeout <- true
