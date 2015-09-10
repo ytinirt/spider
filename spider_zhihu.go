@@ -23,7 +23,7 @@ var maxProcessor int = 4
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
-var maxGenRandId int = 15
+var maxGenRandId int = 20
 
 type record struct {
 	id    int
