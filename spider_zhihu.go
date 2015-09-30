@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/polaris1119/bitmap"
 	"golang.org/x/net/html"
 	"math/rand"
 	"net/http"
@@ -23,7 +24,8 @@ var maxProcessor int = 4
 var useRand bool = true
 var maxValidId int = -1
 var tmpId int = -1
-var maxGenRandId int = 20
+var maxGenRandId int = 40
+var bitMap *bitmap.Bitmap
 
 type record struct {
 	id    int
@@ -47,6 +49,8 @@ func main() {
 	//		tmpId = maxValidId
 	//	}
 	//}
+
+	bitMap = bitmap.NewBitmapSize(50000000)
 
 	file, err := os.OpenFile(dbFileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -77,7 +81,7 @@ func main() {
 		select {
 		case id = <-todo:
 		case <-timeout:
-			if lenTodo < 200 {
+			if lenTodo < 1000 {
 				fmt.Println("genRandId triggerd")
 				go genRandId(todo)
 			}
@@ -121,6 +125,11 @@ func genStartId() int {
 			panic("id <= 0")
 		}
 
+		if bitMap.GetBit(uint64(id)) != 0 {
+			continue
+		}
+		bitMap.SetBit(uint64(id), 1)
+
 		idDbLock.RLock()
 		_, ok := idDb[id]
 		idDbLock.RUnlock()
@@ -153,6 +162,11 @@ func genRandId(todo chan int) {
 
 	for count > 0 {
 		id = rand.Intn(16000000) + 19550000
+
+		if bitMap.GetBit(uint64(id)) != 0 {
+			continue
+		}
+		bitMap.SetBit(uint64(id), 1)
 
 		idDbLock.RLock()
 		_, ok := idDb[id]
@@ -232,6 +246,7 @@ func loadRecord(file *os.File) (totalLoaded int, lastId int) {
 		} else {
 			idDb[dec] = title
 		}
+		bitMap.SetBit(uint64(dec), 1)
 		lastId = dec
 		totalLoaded++
 	}
@@ -305,6 +320,10 @@ func processUrl(url string, result chan record, todo chan int) int {
 					if !success {
 						break
 					}
+					//if bitMap.GetBit(uint64(id)) != 0 {
+					//	continue
+					//}
+					//bitMap.SetBit(uint64(id), 1)
 					todo <- id
 					//fmt.Println("added", id)
 				}
